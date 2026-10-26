@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/video_player_surface.dart';
 import '../widgets/video_player_widget.dart';
 import '../widgets/video_card.dart';
@@ -22,6 +23,14 @@ import '../widgets/player_details_panel.dart';
 import '../widgets/player_episodes_panel.dart';
 import '../widgets/player_sources_panel.dart';
 import '../widgets/windows_title_bar.dart';
+import '../widgets/danmaku_overlay.dart';
+import '../models/danmaku_comment.dart';
+import '../models/danmaku_episode.dart';
+import '../models/danmaku_media.dart';
+import '../models/danmaku_render_settings.dart';
+import '../services/danmaku_service.dart';
+import '../services/danmaku_settings_provider.dart';
+import 'dart:convert' show utf8;
 
 class PlayerScreen extends StatefulWidget {
   final String? source;
@@ -87,6 +96,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   List<SearchResult> allSources = [];
   // 所有源测速结果
   Map<String, SourceSpeed> allSourcesSpeed = {};
+
+  // Danmaku state
+  List<DanmakuComment> _danmakuComments = [];
+  bool _danmakuEnabled = true;
+  bool _danmakuSearchDone = false;
+  bool _showDanmakuDebug = true;
 
   // VideoPlayerWidget 的控制器
   VideoPlayerWidgetController? _videoPlayerController;
@@ -693,6 +708,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   /// 跳转到指定进度
   Future<void> seekToProgress(Duration position) async {
     try {
+      // Clear danmaku on episode change
+      _danmakuSearchDone = false;
+      _danmakuComments = [];
+      
       await _videoPlayerController?.seekTo(position);
     } catch (e) {
       // 静默处理错误
@@ -715,8 +734,58 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   /// 处理视频播放器 ready 事件
+  Future<void> _toggleDanmaku() async {
+    _danmakuEnabled = !_danmakuEnabled;
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setBool('danmaku_enabled', _danmakuEnabled);
+    setState(() {});
+    DanmakuDebugLogger.add('[Danmaku] Toggled: ${_danmakuEnabled ? "enabled" : "disabled"}');
+  }
+
+  Future<void> _autoSearchDanmaku() async {
+    if (currentDetail == null || _danmakuComments.isNotEmpty) return;
+    final title = currentDetail!.title;
+    final year = currentDetail!.year;
+    DanmakuDebugLogger.add('[Danmaku] Searching for: $title ($year)');
+    try {
+      final results = await DanmakuService.searchMedia(title, year: year != null ? int.tryParse(year) : null);
+      if (results.isEmpty) {
+        DanmakuDebugLogger.add('[Danmaku] No media found for: $title');
+        return;
+      }
+      final media = results.first;
+      DanmakuDebugLogger.add('[Danmaku] Found: ${media.title} (${media.type})');
+
+      final episodes = await DanmakuService.getEpisodes(media);
+      if (episodes.isEmpty) {
+        DanmakuDebugLogger.add('[Danmaku] No episodes found');
+        return;
+      }
+      DanmakuDebugLogger.add('[Danmaku] Episodes: ${episodes.length}');
+
+      final ep = currentEpisodeIndex < episodes.length
+          ? episodes[currentEpisodeIndex]
+          : episodes.first;
+      final batch = await DanmakuService.getComments(ep);
+      DanmakuDebugLogger.add('[Danmaku] Loaded ${batch.comments.length} danmaku');
+
+      setState(() {
+        _danmakuComments = batch.comments;
+      });
+    } catch (e) {
+      DanmakuDebugLogger.add('[Danmaku] Search error: $e');
+    }
+  }
+
   void _onVideoPlayerReady() {
     if (!mounted) return;
+    DanmakuDebugLogger.add('[Danmaku] Player initialized');
+
+    // Auto-search danmaku
+    if (!_danmakuSearchDone && currentDetail != null && _danmakuEnabled) {
+      _danmakuSearchDone = true;
+      _autoSearchDanmaku();
+    }
 
     // 视频播放器准备就绪时的处理逻辑
     debugPrint('Video player is ready!');
@@ -1066,7 +1135,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     return Stack(
       children: [
         if (!_isCasting)
-          VideoPlayerWidget(
+          DanmakuOverlay(
+            comments: _danmakuComments,
+            settings: const DanmakuRenderSettings(),
+            videoPosition: _videoPlayerController?.currentPosition ?? Duration.zero,
+            enabled: _danmakuEnabled,
+            child: VideoPlayerWidget(
             surface:
                 isPC ? VideoPlayerSurface.desktop : VideoPlayerSurface.mobile,
             url: null,
@@ -1093,6 +1167,53 @@ class _PlayerScreenState extends State<PlayerScreen>
                 _isWebFullscreen = isWebFullscreen;
               });
             },
+          ),
+          // Close DanmakuOverlay
+        ),
+        // Danmaku controls (toggle + debug)
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _toggleDanmaku,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.comment,
+                    color: _danmakuEnabled ? Colors.white : Colors.white38,
+                    size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => setState(() => _showDanmakuDebug = !_showDanmakuDebug),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.bug_report,
+                    color: _showDanmakuDebug ? Colors.orange : Colors.white38,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Danmaku debug panel
+        if (_showDanmakuDebug)
+          DanmakuDebugOverlay(
+            onClose: () => setState(() => _showDanmakuDebug = false),
           ),
         if (_isCasting && _dlnaDevice != null)
           DLNAPlayer(

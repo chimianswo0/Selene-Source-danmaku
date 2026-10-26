@@ -85,7 +85,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   app_settings: cd21e176b56f8172043640ade81322a98896bff4
   bitsdojo_window_macos: 7959fb0ca65a3ccda30095c181ecb856fae48ea9
-  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
   gal: baecd024ebfd13c441269ca7404792a7152fde89
   macos_window_utils: 23f54331a0fd51eea9e0ed347253bf48fd379d1d
   media_kit_libs_macos_video: 85a23e549b5f480e72cae3e5634b5514bc692f65
@@ -99,6 +99,6 @@ SPEC CHECKSUMS:
   volume_controller: 5c068e6d085c80dadd33fc2c918d2114b775b3dd
   wakelock_plus: 917609be14d812ddd9e9528876538b2263aaa03b
 
-PODFILE CHECKSUM: 0af13ea7a15fad8c02a495a737daafd743f372ad
+PODFILE CHECKSUM: 13edfb9e70ac3646927b8e6c9a212ad1d0fa29b2
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.17.0

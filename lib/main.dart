@@ -9,6 +9,7 @@ import 'services/theme_service.dart';
 import 'services/douban_cache_service.dart';
 import 'services/local_mode_storage_service.dart';
 import 'services/subscription_service.dart';
+import 'services/danmaku_settings_provider.dart';
 import 'dart:io' show Platform;
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:media_kit/media_kit.dart';
@@ -37,7 +38,12 @@ void main() async {
   // 启动定期清理
   cacheService.startPeriodicCleanup();
 
-  runApp(const SeleneApp());
+  runApp(MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (_) => DanmakuSettingsProvider()..load()),
+    ],
+    child: const SeleneApp(),
+  ));
 
   // 初始化 Windows 窗口配置
   if (Platform.isWindows) {
