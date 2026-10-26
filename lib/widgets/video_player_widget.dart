@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
+import '../models/danmaku_comment.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pip/pip.dart';
 import 'mobile_player_controls.dart';
@@ -24,6 +25,11 @@ class VideoPlayerWidget extends StatefulWidget {
   final int? currentEpisodeIndex;
   final int? totalEpisodes;
   final String? sourceName;
+  
+  // Danmaku fields
+  final List<DanmakuComment> danmakuComments;
+  final bool danmakuEnabled;
+  final Duration danmakuVideoPosition;
   final Function(bool isWebFullscreen)? onWebFullscreenChanged;
   final VoidCallback? onExitFullScreen;
   final bool live;
@@ -46,6 +52,9 @@ class VideoPlayerWidget extends StatefulWidget {
     this.currentEpisodeIndex,
     this.totalEpisodes,
     this.sourceName,
+    this.danmakuComments = const [],
+    this.danmakuEnabled = false,
+    this.danmakuVideoPosition = Duration.zero,
     this.onWebFullscreenChanged,
     this.onExitFullScreen,
     this.live = false,
@@ -479,7 +488,13 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
               controller: _videoController!,
               controls: (state) {
                 return widget.surface == VideoPlayerSurface.desktop
-                    ? PCPlayerControls(
+                    ? Stack(
+                        children: [
+                          if (widget.danmakuEnabled && widget.danmakuComments.isNotEmpty)
+                            Positioned.fill(
+                              child: _buildDanmakuOverlay(),
+                            ),
+                          PCPlayerControls(
                         state: state,
                         player: _player!,
                         onBackPressed: widget.onBackPressed,
@@ -501,8 +516,16 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                         live: widget.live,
                         playbackSpeedListenable: _playbackSpeed,
                         onSetSpeed: _setPlaybackSpeed,
+                      ),
+                        ],
                       )
-                    : MobilePlayerControls(
+                    : Stack(
+                        children: [
+                          if (widget.danmakuEnabled && widget.danmakuComments.isNotEmpty)
+                            Positioned.fill(
+                              child: _buildDanmakuOverlay(),
+                            ),
+                          MobilePlayerControls(
                         player: _player!,
                         state: state,
                         onControlsVisibilityChanged: (_) {},
@@ -524,6 +547,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                         onSetSpeed: _setPlaybackSpeed,
                         onEnterPipMode: _enterPipMode,
                         isPipMode: _isPipMode,
+                      ),
+                        ],
                       );
               },
             )
@@ -532,6 +557,48 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                 color: Colors.white,
               ),
             ),
+    );
+  }
+
+  Widget _buildDanmakuOverlay() {
+    return Stack(
+      children: _buildDanmakuLines(),
+    );
+  }
+
+  List<Widget> _buildDanmakuLines() {
+    final lines = <Widget>[];
+    final now = widget.danmakuVideoPosition.inMilliseconds;
+    
+    for (int i = 0; i < widget.danmakuComments.length; i++) {
+      final c = widget.danmakuComments[i];
+      if (now - c.timeMs <= 8000 && now >= c.timeMs) {
+        lines.add(_buildDanmakuLine(c, i, now));
+      }
+    }
+    return lines;
+  }
+
+  Widget _buildDanmakuLine(DanmakuComment c, int index, int now) {
+    final progress = 1.0 - (now - c.timeMs) / 8000.0;
+    final startX = 1.0;
+    final endX = -0.3;
+    final x = endX + (startX - endX) * progress;
+    final y = 0.05 + (index % 8) * 0.12;
+    
+    return Positioned(
+      left: x * 100,
+      top: y * 100,
+      child: Text(
+        c.content,
+        style: TextStyle(
+          color: Color(c.color),
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 }

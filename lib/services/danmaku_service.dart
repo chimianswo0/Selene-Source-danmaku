@@ -11,11 +11,15 @@ class DanmakuService {
   
   static Map<String, String> get _headers {
     return _cookie != null
-        ? {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-           'Referer': 'https://www.bilibili.com/',
-           'Cookie': _cookie!}
-        : {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-           'Referer': 'https://www.bilibili.com/'};
+        ? {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': 'https://www.bilibili.com/',
+            'Cookie': _cookie!,
+          }
+        : {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': 'https://www.bilibili.com/',
+          };
   }
   
   static Future<void> _initCookie() async {
@@ -44,6 +48,45 @@ class DanmakuService {
   static Future<List<DanmakuMedia>> searchMedia(String title, {int? year}) async {
     await _initCookie();
     final results = <DanmakuMedia>[];
+    
+    // Try bangumi search API first
+    try {
+      final resp = await http.get(
+        Uri.parse(
+          'https://api.bilibili.com/x/web-interface/search/type?'
+          'search_type=bangumi&keyword=${Uri.encodeComponent(title)}',
+        ),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 10));
+      
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body) as Map<String, dynamic>;
+        final data = (json['data'] as Map<String, dynamic>?) ?? {};
+        final bangumi = (data['bangumi'] as List<dynamic>?) ?? [];
+        
+        for (final item in bangumi) {
+          final map = item as Map<String, dynamic>;
+          final sid = map['season_id'] as int?;
+          if (sid != null && sid > 0) {
+            final t = (map['title'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), '').trim();
+            final y = (map['publish'] as Map<String, dynamic>?)?['pub_time'] as int?;
+            DanmakuDebugLogger.add('[Danmaku] Bangumi found: $t (sid:$sid, year:$y)');
+            results.add(DanmakuMedia(
+              provider: 'bilibili',
+              mediaId: 'ss:$sid',
+              title: t,
+              type: 'tvseries',
+              year: y != null ? DateTime.fromMillisecondsSinceEpoch(y * 1000).year : year,
+            ));
+            return results;
+          }
+        }
+      }
+    } catch (e) {
+      DanmakuDebugLogger.add('[Danmaku] Bangumi search error: $e');
+    }
+    
+    // Fallback: try general search
     try {
       final resp = await http.get(
         Uri.parse(
@@ -53,46 +96,41 @@ class DanmakuService {
         headers: _headers,
       ).timeout(const Duration(seconds: 10));
       
-      if (resp.statusCode != 200) {
-        DanmakuDebugLogger.add('[Danmaku] Search API status: ${resp.statusCode}');
-        return results;
-      }
-      
-      final json = jsonDecode(resp.body) as Map<String, dynamic>;
-      final data = (json['data'] as Map<String, dynamic>?) ?? {};
-      final resultsList = (data['result'] as List<dynamic>?) ?? [];
-      
-      for (final item in resultsList) {
-        final map = item as Map<String, dynamic>;
-        final resultType = (map['result_type'] as String?) ?? '';
-        final innerData = (map['data'] as List<dynamic>?) ?? [];
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body) as Map<String, dynamic>;
+        final data = (json['data'] as Map<String, dynamic>?) ?? {};
+        final resultsList = (data['result'] as List<dynamic>?) ?? [];
         
-        // Match bangumi or feitian types
-        if (resultType == 'media_bangumi' || resultType == 'media_ft') {
-          for (final i in innerData) {
-            final im = i as Map<String, dynamic>;
-            final sid = im['season_id'] as int?;
-            if (sid != null && sid > 0) {
-              final t = (im['title'] as String? ?? '')
-                  .replaceAll(RegExp(r'<[^>]*>'), '')
-                  .trim();
-              DanmakuDebugLogger.add('[Danmaku] Found media: $t (sid:$sid)');
-              results.add(DanmakuMedia(
-                provider: 'bilibili',
-                mediaId: 'ss:$sid',
-                title: t,
-                type: 'tvseries',
-                year: year,
-              ));
-              return results; // Return first match
+        for (final item in resultsList) {
+          final map = item as Map<String, dynamic>;
+          final resultType = (map['result_type'] as String?) ?? '';
+          final innerData = (map['data'] as List<dynamic>?) ?? [];
+          
+          if (resultType == 'media_bangumi' || resultType == 'media_ft') {
+            for (final i in innerData) {
+              final im = i as Map<String, dynamic>;
+              final sid = im['season_id'] as int?;
+              if (sid != null && sid > 0) {
+                final t = (im['title'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), '').trim();
+                DanmakuDebugLogger.add('[Danmaku] Found media: $t (sid:$sid)');
+                results.add(DanmakuMedia(
+                  provider: 'bilibili',
+                  mediaId: 'ss:$sid',
+                  title: t,
+                  type: 'tvseries',
+                  year: year,
+                ));
+                return results;
+              }
             }
           }
         }
       }
-      DanmakuDebugLogger.add('[Danmaku] No matching bangumi found for: $title');
     } catch (e) {
-      DanmakuDebugLogger.add('[Danmaku] Search error: $e');
+      DanmakuDebugLogger.add('[Danmaku] General search error: $e');
     }
+    
+    DanmakuDebugLogger.add('[Danmaku] No media found for: $title');
     return results;
   }
   
@@ -116,7 +154,7 @@ class DanmakuService {
             final ep = eps[i] as Map<String, dynamic>;
             final cid = ep['cid'] as int?;
             if (cid != null && cid > 0) {
-              final title = ((ep['long_title'] as String? ?? ep['title'] ?? '')
+              final title = ((ep['long_title'] ?? ep['title'] ?? '')
                   .replaceAll(RegExp(r'<[^>]*>'), '')
                   .trim());
               episodes.add(DanmakuEpisode(
@@ -146,7 +184,6 @@ class DanmakuService {
       ).timeout(const Duration(seconds: 10));
       
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
-        // Raw deflate (not gzip) - use Inflate
         final inflate = Inflate(resp.bodyBytes);
         final xml = utf8.decode(inflate.output.getBytes());
         final batch = DanmakuCommentBatch.fromXml(xml);

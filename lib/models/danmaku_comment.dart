@@ -3,7 +3,12 @@ class DanmakuComment {
   final int mode;
   final int color;
   final String content;
-  const DanmakuComment({required this.timeMs, required this.mode, required this.color, required this.content});
+  const DanmakuComment({
+    required this.timeMs,
+    required this.mode,
+    required this.color,
+    required this.content,
+  });
 }
 
 class DanmakuCommentBatch {
@@ -25,7 +30,7 @@ class DanmakuCommentBatch {
         timeMs: timeMs,
         mode: mode,
         color: color,
-        content: match.group(2) ?? ''
+        content: match.group(2) ?? '',
       ));
     }
     return DanmakuCommentBatch(comments);

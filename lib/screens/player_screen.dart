@@ -23,13 +23,9 @@ import '../widgets/player_details_panel.dart';
 import '../widgets/player_episodes_panel.dart';
 import '../widgets/player_sources_panel.dart';
 import '../widgets/windows_title_bar.dart';
-import '../widgets/danmaku_overlay.dart';
 import '../models/danmaku_comment.dart';
-import '../models/danmaku_episode.dart';
-import '../models/danmaku_media.dart';
-import '../models/danmaku_render_settings.dart';
 import '../services/danmaku_service.dart';
-import '../services/danmaku_settings_provider.dart';
+import '../widgets/danmaku_overlay.dart';
 import 'dart:convert' show utf8;
 
 class PlayerScreen extends StatefulWidget {
@@ -102,7 +98,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _danmakuEnabled = true;
   bool _danmakuSearchDone = false;
   bool _showDanmakuDebug = true;
-
+  
   // VideoPlayerWidget 的控制器
   VideoPlayerWidgetController? _videoPlayerController;
 
@@ -708,10 +704,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   /// 跳转到指定进度
   Future<void> seekToProgress(Duration position) async {
     try {
-      // Clear danmaku on episode change
-      _danmakuSearchDone = false;
-      _danmakuComments = [];
-      
       await _videoPlayerController?.seekTo(position);
     } catch (e) {
       // 静默处理错误
@@ -1135,12 +1127,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     return Stack(
       children: [
         if (!_isCasting)
-          DanmakuOverlay(
-            comments: _danmakuComments,
-            settings: const DanmakuRenderSettings(),
-            videoPosition: _videoPlayerController?.currentPosition ?? Duration.zero,
-            enabled: _danmakuEnabled,
-            child: VideoPlayerWidget(
+          VideoPlayerWidget(
             surface:
                 isPC ? VideoPlayerSurface.desktop : VideoPlayerSurface.mobile,
             url: null,
@@ -1149,6 +1136,9 @@ class _PlayerScreenState extends State<PlayerScreen>
               _videoPlayerController = controller;
             },
             onReady: _onVideoPlayerReady,
+            danmakuComments: _danmakuComments,
+            danmakuEnabled: _danmakuEnabled,
+            danmakuVideoPosition: _videoPlayerController?.currentPosition ?? Duration.zero,
             onNextEpisode: _onNextEpisode,
             onVideoCompleted: _onVideoCompleted,
             onPause: () {
@@ -1168,9 +1158,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               });
             },
           ),
-          // Close DanmakuOverlay
-        ),
-        // Danmaku controls (toggle + debug)
+        // Danmaku toggle + debug buttons
         Positioned(
           top: 8,
           right: 8,
